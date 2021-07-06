@@ -21,7 +21,7 @@ def graph_to_tensorflow_script(graph: Graph) -> str:
     return _TensorFlowScriptTemplate.format('\n\n'.join(graphs)).strip()
 
 
-def _sort_incoming_edges(node: Node) -> List[Edge]:
+def _sorted_incoming_edges(node: Node) -> List[Edge]:
     edges = [edge for edge in node.graph.edges if edge.tail is node]
     if not edges:
         return []
@@ -34,7 +34,7 @@ def _sort_incoming_edges(node: Node) -> List[Edge]:
     raise IllegalGraphError(node.graph, 'Node {} has bad inputs'.format(node.name))
 
 def _format_inputs(node: Node) -> str:
-    edges = _sort_incoming_edges(node)
+    edges = _sorted_incoming_edges(node)
     inputs = []
     for edge in edges:
         if edge.head.name == '_inputs':
