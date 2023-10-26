@@ -43,6 +43,7 @@ minimal_class = ExperimentConfig(
 )
 
 minimal_canon = {
+    'experimentType': 'hpo',
     'searchSpace': {'a': 1},
     'trialCommand': 'python main.py',
     'trialCodeDirectory': os.path.realpath('.'),
@@ -69,7 +70,8 @@ minimal_canon = {
                 'maxTrialNumberPerGpu': 1,
             }
         ],
-        'reuseMode': True,
+        'reuseMode': False,
+        #'logCollection': 'on_error',
     }
 }
 
@@ -106,6 +108,7 @@ detailed_json = {
 }
 
 detailed_canon = {
+    'experimentType': 'hpo',
     'searchSpace': {'a': 1},
     'trialCommand': 'python main.py',
     'trialCodeDirectory': os.path.realpath('.'),
@@ -144,7 +147,8 @@ detailed_canon = {
                 'pythonPath': '~/path'
             }
         ],
-        'reuseMode': True,
+        'reuseMode': False,
+        #'logCollection': 'on_error',
     }
 }
 

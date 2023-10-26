@@ -4,11 +4,9 @@
 'use strict';
 
 import { expect } from 'chai';
-import { Container, Scope } from 'typescript-ioc';
 
-import * as component from '../../common/component';
+import { IocShim } from 'common/ioc_shim';
 import { Database, DataStore, TrialJobInfo } from '../../common/datastore';
-import { setExperimentStartupInfo } from '../../common/experimentStartupInfo';
 import { ExperimentProfile, TrialJobStatistics } from '../../common/manager';
 import { TrialJobStatus } from '../../common/trainingService';
 import { cleanupUnitTest, prepareUnitTest } from '../../common/utils';
@@ -19,9 +17,9 @@ describe('Unit test for dataStore', () => {
     let ds: DataStore;
     before(async () => {
         prepareUnitTest();
-        Container.bind(Database).to(SqlDB).scope(Scope.Singleton);
-        Container.bind(DataStore).to(NNIDataStore).scope(Scope.Singleton);
-        ds = component.get(DataStore);
+        IocShim.bind(Database, SqlDB);
+        IocShim.bind(DataStore, NNIDataStore);
+        ds = IocShim.get(DataStore);
         await ds.init();
     });
 

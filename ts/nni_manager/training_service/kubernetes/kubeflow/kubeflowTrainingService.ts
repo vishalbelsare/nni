@@ -5,7 +5,6 @@ import assert from 'assert';
 import cpp from 'child-process-promise';
 import fs from 'fs';
 import path from 'path';
-import * as component from 'common/component';
 
 import { getExperimentId } from 'common/experimentStartupInfo';
 import {
@@ -24,13 +23,11 @@ import { KubeflowClusterConfig, KubeflowClusterConfigAzure, KubeflowClusterConfi
     KubeflowTrialConfig, KubeflowTrialConfigFactory, KubeflowTrialConfigPytorch, KubeflowTrialConfigTensorflow
 } from './kubeflowConfig';
 import { KubeflowJobInfoCollector } from './kubeflowJobInfoCollector';
-import { KubeflowJobRestServer } from './kubeflowJobRestServer';
 
 /**
  * Training Service implementation for Kubeflow
  * Refer https://github.com/kubeflow/kubeflow for more info about Kubeflow
  */
-@component.Singleton
 class KubeflowTrainingService extends KubernetesTrainingService implements KubernetesTrainingService {
     private kubeflowClusterConfig?: KubeflowClusterConfig;
     private kubeflowTrialConfig?: KubeflowTrialConfig;
@@ -69,8 +66,7 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
         }
 
         if (this.kubernetesRestServerPort === undefined) {
-            const restServer: KubeflowJobRestServer = component.get(KubeflowJobRestServer);
-            this.kubernetesRestServerPort = restServer.clusterRestServerPort;
+            this.kubernetesRestServerPort = this.kubernetesJobRestServer!.clusterRestServerPort;
         }
 
         // upload code Dir to storage
@@ -78,10 +74,10 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
             await this.copyExpCodeDirPromise;
         }
 
-        const trialJobId: string = uniqueString(5);
+        const trialJobId: string = form.id === undefined ? uniqueString(5) : form.id;
         const trialWorkingFolder: string = path.join(this.CONTAINER_MOUNT_PATH, 'nni', getExperimentId(), trialJobId);
         const kubeflowJobName: string = `nni-exp-${this.experimentId}-trial-${trialJobId}`.toLowerCase();
-        const trialLocalTempFolder: string = path.join(getExperimentRootDir(), 'trials-local', trialJobId);
+        const trialLocalTempFolder: string = path.join(getExperimentRootDir(), 'trials', trialJobId);
         //prepare the runscript
         await this.prepareRunScript(trialLocalTempFolder, trialJobId, trialWorkingFolder, form);
         //upload script files to sotrage
@@ -120,6 +116,7 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
             case TrialConfigMetadataKey.KUBEFLOW_CLUSTER_CONFIG: {
                 const kubeflowClusterJsonObject: object = JSON.parse(value);
                 this.kubeflowClusterConfig = KubeflowClusterConfigFactory.generateKubeflowClusterConfig(kubeflowClusterJsonObject);
+                this.genericK8sClient.setNamespace = this.kubeflowClusterConfig.namespace ?? "default";
                 if (this.kubeflowClusterConfig.storageType === 'azureStorage') {
                     const azureKubeflowClusterConfig: KubeflowClusterConfigAzure = <KubeflowClusterConfigAzure>this.kubeflowClusterConfig;
                     this.azureStorageAccountName = azureKubeflowClusterConfig.azureStorage.accountName;
@@ -137,6 +134,7 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
                 }
                 this.kubernetesCRDClient = KubeflowOperatorClientFactory.createClient(
                     this.kubeflowClusterConfig.operator, this.kubeflowClusterConfig.apiVersion);
+                this.kubernetesCRDClient.namespace = this.kubeflowClusterConfig.namespace ?? "default";
                 break;
             }
             case TrialConfigMetadataKey.TRIAL_CONFIG: {
@@ -161,7 +159,7 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
                 } catch (error) {
                     this.log.error(error);
 
-                    return Promise.reject(new Error(error));
+                    return Promise.reject(new Error(error as any));
                 }
                 break;
             }
@@ -310,7 +308,7 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
         // Generate kubeflow job resource config object
         const kubeflowJobConfig: any = await this.generateKubeflowJobConfig(trialJobId, trialWorkingFolder, kubeflowJobName, workerPodResources,
                                                                       nonWorkerResources);
-
+        this.log.info('kubeflowJobConfig:', kubeflowJobConfig);
         return Promise.resolve(kubeflowJobConfig);
     }
 
@@ -368,7 +366,7 @@ class KubeflowTrainingService extends KubernetesTrainingService implements Kuber
             kind: this.kubernetesCRDClient.jobKind,
             metadata: {
                 name: kubeflowJobName,
-                namespace: 'default',
+                namespace: this.kubernetesCRDClient.namespace,
                 labels: {
                     app: this.NNI_KUBERNETES_TRIAL_LABEL,
                     expId: getExperimentId(),

@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+import cpp from 'child-process-promise';
 import fs from 'fs';
 import path from 'path';
-import * as component from 'common/component';
 import { KubeflowConfig, toMegaBytes } from 'common/experimentConfig';
 import { ExperimentStartupInfo } from 'common/experimentStartupInfo';
 import { EnvironmentInformation } from 'training_service/reusable/environment';
@@ -12,7 +12,6 @@ import { KubeflowOperatorClientFactory } from 'training_service/kubernetes/kubef
 import { KubeflowClusterConfigAzure } from 'training_service/kubernetes/kubeflow/kubeflowConfig';
 import { KeyVaultConfig, AzureStorage } from 'training_service/kubernetes/kubernetesConfig';
 
-@component.Singleton
 export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
 
     private config: KubeflowConfig;
@@ -26,6 +25,7 @@ export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
         // Create kubernetesCRDClient
         this.kubernetesCRDClient = KubeflowOperatorClientFactory.createClient(
             this.config.operator, this.config.apiVersion);
+        this.kubernetesCRDClient.namespace = this.config.namespace ?? "default";
         // Create storage
         if (this.config.storage.storageType === 'azureStorage') {
             if (this.config.storage.azureShare === undefined ||
@@ -41,7 +41,7 @@ export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
                 this.config.operator, this.config.apiVersion, keyValutConfig, azureStorage);
             this.azureStorageAccountName = azureKubeflowClusterConfig.azureStorage.accountName;
             this.azureStorageShare = azureKubeflowClusterConfig.azureStorage.azureShare;
-            
+            this.genericK8sClient.setNamespace = this.config.namespace ?? "default";
             this.createStoragePromise = this.createAzureStorage(
                 azureKubeflowClusterConfig.keyVault.vaultName,
                 azureKubeflowClusterConfig.keyVault.name
@@ -84,7 +84,7 @@ export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
 
         const kubeflowJobName: string = `nniexp${this.experimentId}env${environment.id}`.toLowerCase();
         
-        await fs.promises.writeFile(path.join(this.environmentLocalTempFolder, "run.sh"), environment.command, { encoding: 'utf8' });
+        await fs.promises.writeFile(path.join(this.environmentLocalTempFolder, `${environment.id}_run.sh`), environment.command, { encoding: 'utf8' });
 
         //upload script files to sotrage
         const trialJobOutputUrl: string = await this.uploadFolder(this.environmentLocalTempFolder, `nni/${this.experimentId}`);
@@ -105,7 +105,13 @@ export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
             }
             return await this.uploadFolderToAzureStorage(srcDirectory, destDirectory, 2);
         } else {
-            // do not need to upload files to nfs server, temp folder already mounted to nfs
+            try {
+                // copy envs and run.sh from environments-temp to nfs-root(mounted)
+                await cpp.exec(`mkdir -p ${this.nfsRootDir}/${destDirectory}`);
+                await cpp.exec(`cp -r ${srcDirectory}/* ${this.nfsRootDir}/${destDirectory}`);
+            } catch (uploadError) {
+                return Promise.reject(uploadError);
+            }
             return `nfs://${this.config.storage.server}:${destDirectory}`;
         }
     }
@@ -158,24 +164,26 @@ export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
             if (this.config.worker) {
                 const privateRegistrySecretName = await this.createRegistrySecret(this.config.worker.privateRegistryAuthPath);
                 replicaSpecsObj.Worker = this.generateReplicaConfig(this.config.worker.replicas,
-                                                                    this.config.worker.dockerImage, 'run.sh', workerPodResources, privateRegistrySecretName);
+                                                                    this.config.worker.dockerImage, 
+                                                                    `${envId}_run.sh`, workerPodResources, privateRegistrySecretName);
             }
             if (this.config.ps !== undefined) {
                 const privateRegistrySecretName: string | undefined = await this.createRegistrySecret(this.config.ps.privateRegistryAuthPath);
                 replicaSpecsObj.Ps = this.generateReplicaConfig(this.config.ps.replicas,
-                                                                this.config.ps.dockerImage, 'run.sh', nonWorkerPodResources, privateRegistrySecretName);
+                                                                this.config.ps.dockerImage,
+                                                                `${envId}_run.sh`, nonWorkerPodResources, privateRegistrySecretName);
             }
             replicaSpecsObjMap.set(this.kubernetesCRDClient.jobKind, {tfReplicaSpecs: replicaSpecsObj});
         } else if (this.config.operator === 'pytorch-operator') {
             if (this.config.worker !== undefined) {
                 const privateRegistrySecretName: string | undefined = await this.createRegistrySecret(this.config.worker.privateRegistryAuthPath);
                 replicaSpecsObj.Worker = this.generateReplicaConfig(this.config.worker.replicas,
-                                                                    this.config.worker.dockerImage, 'run.sh', workerPodResources, privateRegistrySecretName);
+                                                                    this.config.worker.dockerImage, `${envId}_run.sh`, workerPodResources, privateRegistrySecretName);
             }
             if (this.config.master !== undefined) {
                 const privateRegistrySecretName: string | undefined = await this.createRegistrySecret(this.config.master.privateRegistryAuthPath);
                 replicaSpecsObj.Master = this.generateReplicaConfig(this.config.master.replicas,
-                                                                    this.config.master.dockerImage, 'run.sh', nonWorkerPodResources, privateRegistrySecretName);
+                                                                    this.config.master.dockerImage, `${envId}_run.sh`, nonWorkerPodResources, privateRegistrySecretName);
     
             }
             replicaSpecsObjMap.set(this.kubernetesCRDClient.jobKind, {pytorchReplicaSpecs: replicaSpecsObj});
@@ -186,7 +194,7 @@ export class KubeflowEnvironmentService extends KubernetesEnvironmentService {
             kind: this.kubernetesCRDClient.jobKind,
             metadata: {
                 name: kubeflowJobName,
-                namespace: 'default',
+                namespace: this.kubernetesCRDClient.namespace,
                 labels: {
                     app: this.NNI_KUBERNETES_TRIAL_LABEL,
                     expId: this.experimentId,

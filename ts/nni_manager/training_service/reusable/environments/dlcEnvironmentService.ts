@@ -3,23 +3,24 @@
 
 import fs from 'fs';
 import path from 'path';
-import * as component from 'common/component';
-import { getLogger, Logger } from 'common/log';
+import { Deferred } from 'ts-deferred';
 import { DlcConfig } from 'common/experimentConfig';
 import { ExperimentStartupInfo } from 'common/experimentStartupInfo';
+import { IocShim } from 'common/ioc_shim';
+import { getLogger, Logger } from 'common/log';
 import { DlcClient } from '../dlc/dlcClient';
 import { DlcEnvironmentInformation } from '../dlc/dlcConfig';
 import { EnvironmentInformation, EnvironmentService } from '../environment';
 import { EventEmitter } from "events";
 import { FileCommandChannel } from '../channels/fileCommandChannel';
 import { MountedStorageService } from '../storages/mountedStorageService';
-import { Scope } from 'typescript-ioc';
 import { StorageService } from '../storageService';
+import { getLogDir } from 'common/utils';
+import { setTimeout } from 'timers/promises';
 
 /**
  * Collector DLC jobs info from DLC cluster, and update dlc job status locally
  */
-@component.Singleton
 export class DlcEnvironmentService extends EnvironmentService {
 
     private readonly log: Logger = getLogger('dlcEnvironmentService');
@@ -30,8 +31,8 @@ export class DlcEnvironmentService extends EnvironmentService {
         super();
         this.experimentId = info.experimentId;
         this.config = config;
-        component.Container.bind(StorageService).to(MountedStorageService).scope(Scope.Singleton);
-        const storageService = component.get<StorageService>(StorageService)
+        IocShim.bind(StorageService, MountedStorageService);
+        const storageService = IocShim.get<StorageService>(StorageService)
         const remoteRoot = storageService.joinPath(this.config.localStorageMountPoint, 'nni-experiments', this.experimentId);
         const localRoot = storageService.joinPath(this.config.localStorageMountPoint, 'nni-experiments');
         storageService.initialize(localRoot, remoteRoot);
@@ -52,8 +53,9 @@ export class DlcEnvironmentService extends EnvironmentService {
     public get getName(): string {
         return 'dlc';
     }
-
+    
     public async refreshEnvironmentsStatus(environments: EnvironmentInformation[]): Promise<void> {
+        const deferred: Deferred<void> = new Deferred<void>();
         environments.forEach(async (environment) => {
             const dlcClient = (environment as DlcEnvironmentInformation).dlcClient;
             if (!dlcClient) {
@@ -75,8 +77,11 @@ export class DlcEnvironmentService extends EnvironmentService {
                     environment.setStatus('SUCCEEDED');
                     break;
                 case 'FAILED':
+                    // the job create failed,we will sleep(60) to create new job
+                    await setTimeout(60000);
+                    this.log.debug(`await 60s to create new job,DLC: job ${environment.id} is failed!`);
                     environment.setStatus('FAILED');
-                    return Promise.reject(`DLC: job ${environment.envId} is failed!`);
+                    break;
                 case 'STOPPED':
                 case 'STOPPING':
                     environment.setStatus('USER_CANCELED');
@@ -85,6 +90,8 @@ export class DlcEnvironmentService extends EnvironmentService {
                     environment.setStatus('UNKNOWN');
             }
         });
+        deferred.resolve();
+        return deferred.promise;
     }
 
     public async startEnvironment(environment: EnvironmentInformation): Promise<void> {
@@ -112,10 +119,13 @@ export class DlcEnvironmentService extends EnvironmentService {
             environment.id,
             this.config.ecsSpec,
             this.config.region,
+            this.config.workspaceId,
             this.config.nasDataSourceId,
             this.config.accessKeyId,
             this.config.accessKeySecret,
             environment.command,
+            path.join(getLogDir(), `envs/${environment.id}`),
+            this.config.ossDataSourceId,
         );
 
         dlcEnvironment.id = await dlcClient.submit();

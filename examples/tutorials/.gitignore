@@ -1,0 +1,7 @@
+data/
+log/
+*.onnx
+lightning_logs
+models/
+pruning_log/
+output*/

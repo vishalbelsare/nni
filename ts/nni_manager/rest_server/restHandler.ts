@@ -4,15 +4,15 @@
 import { Request, Response, Router } from 'express';
 import path from 'path';
 
-import * as component from '../common/component';
+import { IocShim } from 'common/ioc_shim';
 import { DataStore, MetricDataRecord, TrialJobInfo } from '../common/datastore';
 import { NNIError, NNIErrorNames } from '../common/errors';
 import { isNewExperiment, isReadonly } from '../common/experimentStartupInfo';
+import globals from 'common/globals';
 import { getLogger, Logger } from '../common/log';
 import { ExperimentProfile, Manager, TrialJobStatistics } from '../common/manager';
-import { ExperimentManager } from '../common/experimentManager';
+import { getExperimentsManager } from 'extensions/experiments_manager';
 import { TensorboardManager, TensorboardTaskInfo } from '../common/tensorboardManager';
-import { ValidationSchemas } from './restValidationSchemas';
 import { getVersion } from '../common/utils';
 import { MetricType } from '../common/datastore';
 import { ProfileUpdateType } from '../common/manager';
@@ -22,17 +22,13 @@ import { TrialJobStatus } from '../common/trainingService';
 //const expressJoi = require('express-joi-validator');
 
 class NNIRestHandler {
-    private stopCallback: () => Promise<void>;
     private nniManager: Manager;
-    private experimentsManager: ExperimentManager;
     private tensorboardManager: TensorboardManager;
     private log: Logger;
 
-    constructor(stopCallback: () => Promise<void>) {
-        this.nniManager = component.get(Manager);
-        this.experimentsManager = component.get(ExperimentManager);
-        this.tensorboardManager = component.get(TensorboardManager);
-        this.stopCallback = stopCallback;
+    constructor() {
+        this.nniManager = IocShim.get(Manager);
+        this.tensorboardManager = IocShim.get(TensorboardManager);
         this.log = getLogger('NNIRestHandler');
     }
 
@@ -100,7 +96,7 @@ class NNIRestHandler {
 
         // If it's a fatal error, exit process
         if (isFatal) {
-            this.log.fatal(err);
+            this.log.critical(err);
             process.exit(1);
         } else {
             this.log.error(err);
@@ -117,14 +113,14 @@ class NNIRestHandler {
     // TODO add validators for request params, query, body
     private checkStatus(router: Router): void {
         router.get('/check-status', (_req: Request, res: Response) => {
-            const ds: DataStore = component.get<DataStore>(DataStore);
+            const ds: DataStore = IocShim.get<DataStore>(DataStore);
             ds.init().then(() => {
                 res.send(this.nniManager.getStatus());
             }).catch(async (err: Error) => {
                 this.handleError(err, res);
                 this.log.error(err.message);
                 this.log.error(`Datastore initialize failed, stopping rest server...`);
-                await this.stopCallback();
+                globals.shutdown.criticalError('RestHandler', err);
             });
         });
     }
@@ -174,7 +170,7 @@ class NNIRestHandler {
             if (isNewExperiment()) {
                 this.nniManager.startExperiment(req.body).then((eid: string) => {
                     res.send({
-                        experiment_id: eid // eslint-disable-line @typescript-eslint/camelcase
+                        experiment_id: eid
                     });
                 }).catch((err: Error) => {
                     // Start experiment is a step of initialization, so any exception thrown is a fatal
@@ -214,7 +210,7 @@ class NNIRestHandler {
                     res.send();
                 } catch (err) {
                     // setClusterMetata is a step of initialization, so any exception thrown is a fatal
-                    this.handleError(NNIError.FromError(err), res, true);
+                    this.handleError(NNIError.FromError(err as any), res, true);
                 }
         });
     }
@@ -297,11 +293,7 @@ class NNIRestHandler {
 
     private getTrialFile(router: Router): void {
         router.get('/trial-file/:id/:filename', async(req: Request, res: Response) => {
-            let encoding: string | null = null;
             const filename = req.params['filename'];
-            if (!filename.includes('.') || filename.match(/.*\.(txt|log)/g)) {
-                encoding = 'utf8';
-            }
             this.nniManager.getTrialFile(req.params['id'], filename).then((content: Buffer | string) => {
                 const contentType = content instanceof Buffer ? 'application/octet-stream' : 'text/plain';
                 res.header('Content-Type', contentType);
@@ -329,7 +321,7 @@ class NNIRestHandler {
         router.get('/experiment-metadata', (_req: Request, res: Response) => {
             Promise.all([
                 this.nniManager.getExperimentProfile(),
-                this.experimentsManager.getExperimentsInfo()
+                getExperimentsManager().getExperimentsInfo()
             ]).then(([profile, experimentInfo]) => {
                 for (const info of experimentInfo as any) {
                     if (info.id === profile.id) {
@@ -345,7 +337,7 @@ class NNIRestHandler {
 
     private getExperimentsInfo(router: Router): void {
         router.get('/experiments-info', (_req: Request, res: Response) => {
-            this.experimentsManager.getExperimentsInfo().then((experimentInfo: JSON) => {
+            getExperimentsManager().getExperimentsInfo().then((experimentInfo: JSON) => {
                 res.send(JSON.stringify(experimentInfo));
             }).catch((err: Error) => {
                 this.handleError(err, res);
@@ -416,10 +408,8 @@ class NNIRestHandler {
 
     private stop(router: Router): void {
         router.delete('/experiment', (_req: Request, res: Response) => {
-            this.nniManager.stopExperimentTopHalf().then(() => {
-                res.send();
-                this.nniManager.stopExperimentBottomHalf();
-            });
+            res.send();
+            globals.shutdown.initiate('REST request');
         });
     }
 
@@ -433,8 +423,6 @@ class NNIRestHandler {
     }
 }
 
-export function createRestHandler(stopCallback: () => Promise<void>): Router {
-    const handler: NNIRestHandler = new NNIRestHandler(stopCallback);
-
-    return handler.createRestHandler();
+export function createRestHandler(): Router {
+    return new NNIRestHandler().createRestHandler();
 }

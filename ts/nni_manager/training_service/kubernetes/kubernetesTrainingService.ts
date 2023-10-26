@@ -8,9 +8,9 @@ import azureStorage from 'azure-storage';
 import {EventEmitter} from 'events';
 import {Base64} from 'js-base64';
 import {String} from 'typescript-string-operations';
+import {MethodNotImplementedError} from 'common/errors';
 import {getExperimentId} from 'common/experimentStartupInfo';
 import {getLogger, Logger} from 'common/log';
-import {MethodNotImplementedError} from 'common/errors';
 import {
     NNIManagerIpConfig, TrialJobDetail, TrialJobMetric
 } from 'common/trainingService';
@@ -202,7 +202,7 @@ abstract class KubernetesTrainingService {
             await this.kubernetesJobRestServer.stop();
             this.log.info('Kubernetes Training service rest server stopped successfully.');
         } catch (error) {
-            this.log.error(`Kubernetes Training service rest server stopped failed, error: ${error.message}`);
+            this.log.error(`Kubernetes Training service rest server stopped failed, error: ${(error as any).message}`);
 
             return Promise.reject(error);
         }
@@ -230,7 +230,7 @@ abstract class KubernetesTrainingService {
             this.azureStorageSecretName = String.Format('nni-secret-{0}', uniqueString(8)
                 .toLowerCase());
 
-            const namespace = this.genericK8sClient.getNamespace ? this.genericK8sClient.getNamespace : "default"
+            const namespace = this.genericK8sClient.getNamespace ?? "default";
             await this.genericK8sClient.createSecret(
                 {
                     apiVersion: 'v1',
@@ -330,7 +330,7 @@ abstract class KubernetesTrainingService {
         const body = fs.readFileSync(filePath).toString('base64');
         const registrySecretName = String.Format('nni-secret-{0}', uniqueString(8)
             .toLowerCase());
-        const namespace = this.genericK8sClient.getNamespace ? this.genericK8sClient.getNamespace : "default"
+        const namespace = this.genericK8sClient.getNamespace ?? "default";
         await this.genericK8sClient.createSecret(
             {
                 apiVersion: 'v1',

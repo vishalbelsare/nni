@@ -4,7 +4,7 @@
 import { ExperimentProfile, TrialJobStatistics } from './manager';
 import { TrialJobDetail, TrialJobStatus } from './trainingService';
 
-type TrialJobEvent = TrialJobStatus | 'USER_TO_CANCEL' | 'ADD_CUSTOMIZED' | 'ADD_HYPERPARAMETER' | 'IMPORT_DATA';
+type TrialJobEvent = TrialJobStatus | 'USER_TO_CANCEL' | 'ADD_CUSTOMIZED' | 'ADD_HYPERPARAMETER' | 'IMPORT_DATA' |'ADD_RESUMED';
 type MetricType = 'PERIODICAL' | 'FINAL' | 'CUSTOM' | 'REQUEST_PARAMETER';
 
 interface ExperimentProfileRecord {
@@ -22,6 +22,7 @@ interface TrialJobEventRecord {
     readonly logPath?: string;
     readonly sequenceId?: number;
     readonly message?: string;
+    readonly envId?: string;
 }
 
 interface MetricData {
@@ -52,6 +53,7 @@ interface TrialJobInfo {
     logPath?: string;
     finalMetricData?: MetricDataRecord[];
     stderrPath?: string;
+    envId?: string;
 }
 
 interface HyperParameterFormat {

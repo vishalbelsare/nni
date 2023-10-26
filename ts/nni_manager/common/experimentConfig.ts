@@ -1,10 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import assert from 'assert';
-
 import { KubeflowOperator, OperatorApiVersion } from '../training_service/kubernetes/kubeflow/kubeflowConfig'
-import { KubernetesStorageKind } from '../training_service/kubernetes/kubernetesConfig';
 
 export interface TrainingServiceConfig {
     platform: string;
@@ -50,6 +47,7 @@ export interface RemoteConfig extends TrainingServiceConfig {
     platform: 'remote';
     machineList: RemoteMachineConfig[];
     reuseMode: boolean;
+    //logCollection: 'on_error' | 'always' | 'never'
 }
 
 /* OpenPAI */
@@ -92,7 +90,9 @@ export interface DlcConfig extends TrainingServiceConfig {
     podCount: number;
     ecsSpec: string;
     region: string;
+    workspaceId: string;
     nasDataSourceId: string;
+    ossDataSourceId?: string;
     accessKeyId: string;
     accessKeySecret: string;
     localStorageMountPoint: string;
@@ -131,6 +131,7 @@ export interface KubeflowConfig extends TrainingServiceConfig {
     master?: KubeflowRoleConfig;
     reuseMode: boolean;
     maxTrialNumberPerGpu?: number;
+    namespace?: string;
 }
 
 export interface FrameworkControllerTaskRoleConfig {
@@ -155,7 +156,7 @@ export interface FrameworkControllerConfig extends TrainingServiceConfig {
     taskRoles: FrameworkControllerTaskRoleConfig[];
     reuseMode: boolean;
     maxTrialNumberPerGpu?: number;
-    namespace?: 'default';
+    namespace?: string;
     apiVersion?: string;
 }
 

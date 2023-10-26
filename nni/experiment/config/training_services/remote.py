@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import List, Optional, Union
 import warnings
 
+from typing_extensions import Literal
+
 from ..base import ConfigBase
 from ..training_service import TrainingServiceConfig
 from .. import utils
@@ -53,16 +55,17 @@ class RemoteMachineConfig(ConfigBase):
 
         if self.password is not None:
             warnings.warn('SSH password will be exposed in web UI as plain text. We recommend to use SSH key file.')
-        elif not Path(self.ssh_key_file).is_file():
+        elif not Path(self.ssh_key_file).is_file():  # type: ignore
             raise ValueError(
                 f'RemoteMachineConfig: You must either provide password or a valid SSH key file "{self.ssh_key_file}"'
             )
 
 @dataclass(init=False)
 class RemoteConfig(TrainingServiceConfig):
-    platform: str = 'remote'
+    platform: Literal['remote'] = 'remote'
     machine_list: List[RemoteMachineConfig]
-    reuse_mode: bool = True
+    reuse_mode: bool = False
+    #log_collection: Literal['on_error', 'always', 'never'] = 'on_error'  # TODO: NNI_OUTPUT_DIR?
 
     def _validate_canonical(self):
         super()._validate_canonical()
@@ -70,3 +73,5 @@ class RemoteConfig(TrainingServiceConfig):
             raise ValueError(f'RemoteConfig: must provide at least one machine in machine_list')
         if not self.trial_gpu_number and any(machine.max_trial_number_per_gpu != 1 for machine in self.machine_list):
             raise ValueError('RemoteConfig: max_trial_number_per_gpu does not work without trial_gpu_number')
+        #if self.reuse_mode and self.log_collection != 'on_error':
+        #    raise ValueError('RemoteConfig: log_collection is not supported in reuse mode')
